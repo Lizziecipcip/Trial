@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pre-Order Cepat & Praktis (Real-time)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .product-card {
+            background: white;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .product-info h3 {
+            margin: 0 0 5px 0;
+            color: #2980b9;
+        }
+        .stock-info {
+            font-size: 0.9em;
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        button {
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #2ecc71;
+        }
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        .cart-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #checkout-btn {
+            width: 100%;
+            background-color: #25D366; /* Warna khas WhatsApp */
+            font-size: 1.1em;
+            margin-top: 15px;
+            padding: 15px;
+            color: white;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #checkout-btn:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+    </style>
+
+    <!-- Memanggil Script Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+</head>
+<body>
+
+    <h1>Menu Pre-Order</h1>
+    <div id="product-list">
+        <p style="text-align:center;">Memuat menu...</p>
+    </div>
+
+    <div class="cart-section">
+        <h2>Keranjang Pesanan</h2>
+        <ul id="cart-list">Belum ada pesanan</ul>
+        <h3>Total: Rp <span id="total-price">0</span></h3>
+        <button id="checkout-btn" onclick="kirimKeWhatsApp()" disabled>Kirim Pesanan ke WhatsApp</button>
+    </div>
+
+    <script>
+        //
+        const firebaseConfig = {
+            apiKey: "AIzaSyCG2etIkNH7mMSa3-U6jYOL20Qt3I00I6E",
+            authDomain: "ayo-bikin-cireng.firebaseapp.com",
+            projectId: "ayo-bikin-cireng",
+            storageBucket: "ayo-bikin-cireng.firebasestorage.app",
+            messagingSenderId: "308068120937",
+            appId: "1:308068120937:web:783cde62d1e92c356da5f8",
+            measurementId: "G-126KWLH89S"
+        };
+
+        // Inisialisasi Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let cart = [];
+        let total = 0;
+
+        // Fungsi mengambil data produk dari Firebase secara Real-Time
+        db.ref('products').on('value', (snapshot) => {
+            const data = snapshot.val();
+            const productList = document.getElementById('product-list');
+            productList.innerHTML = '';
+
+            if (data) {
+                for (let key in data) {
+                    let product = data[key];
+                    const isOutOfStock = product.stock <= 0;
+                    
+                    productList.innerHTML += `
+                        <div class="product-card">
+                            <div class="product-info">
+                                <h3>${product.name}</h3>
+                                <p>Harga: Rp ${product.price.toLocaleString('id-ID')}</p>
+                                <p class="stock-info">Sisa Stok: ${product.stock}</p>
+                            </div>
+                            <!-- Saat tombol dipencet, kirim 'key' produk ke fungsi addToCart -->
+                            <button onclick="addToCart('${key}', '${product.name}', ${product.price}, ${product.stock})" ${isOutOfStock ? 'disabled' : ''}>
+                                ${isOutOfStock ? 'Habis' : 'Pesan'}
+                            </button>
+                        </div>
+                    `;
+                }
+            } else {
+                productList.innerHTML = '<p style="text-align:center;">Produk belum tersedia di database.</p>';
+            }
+        });
+
+        // Fungsi menambah ke keranjang dan MENGURANGI STOK DI FIREBASE
+        function addToCart(key, name, price, currentStock) {
+            if (currentStock > 0) {
+                // 1. Kurangi stok di database langsung
+                db.ref('products/' + key).update({
+                    stock: currentStock - 1
+                });
+
+                // 2. Tambah ke keranjang lokal (di HP customer)
+                const cartItem = cart.find(item => item.key === key);
+                if (cartItem) {
+                    cartItem.qty += 1;
+                } else {
+                    cart.push({ key, name, price, qty: 1 });
+                }
+
+                updateCart();
+            }
+        }
+
+        // Fungsi memperbarui tampilan keranjang
+        function updateCart() {
+            const cartList = document.getElementById('cart-list');
+            const btnCheckout = document.getElementById('checkout-btn');
+            cartList.innerHTML = '';
+            total = 0;
+
+            if (cart.length === 0) {
+                cartList.innerHTML = 'Belum ada pesanan';
+                btnCheckout.disabled = true;
+                return;
+            }
+
+            cart.forEach(item => {
+                const subtotal = item.price * item.qty;
+                total += subtotal;
+                cartList.innerHTML += `<li>${item.name} (x${item.qty}) - Rp ${subtotal.toLocaleString('id-ID')}</li>`;
+            });
+
+            document.getElementById('total-price').innerText = total.toLocaleString('id-ID');
+            btnCheckout.disabled = false;
+        }
+
+        // Fungsi mengirim ke WhatsApp
+        function kirimKeWhatsApp() {
+            const noWA = "62895326776789"; 
+            let textWA = "Halo, saya mau ikut Pre-Order!%0A%0ABerikut rincian pesanan saya:%0A";
+            
+            cart.forEach(item => {
+                textWA += `- ${item.name} (Jumlah: ${item.qty})%0A`;
+            });
+            
+            textWA += `%0A*Total Harga: Rp ${total.toLocaleString('id-ID')}*%0A%0AMohon info ketersediaan dan nomor rekening ya. Terima kasih!`;
+            
+            window.open(`https://api.whatsapp.com/send?phone=${noWA}&text=${textWA}`, '_blank');
+        }
+    </script>
+</body>
+</html>
